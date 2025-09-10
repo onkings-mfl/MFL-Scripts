@@ -144,6 +144,8 @@ def process_cdp_block(block, neighbor_dict):
             device = line[len('Device ID: '):].strip()
         elif line.startswith('Platform: '):
             platform = line[len('Platform: '):].rstrip(',').strip()
+            # Filter platform to show only the model
+            platform = re.sub(r', Capabilities:.*', '', platform).replace('Cisco ', '').replace('cisco ', '').strip()
         elif line.startswith('Interface: '):
             local = line[len('Interface: '):].split(',', 1)[0].strip()
     if local and device:
