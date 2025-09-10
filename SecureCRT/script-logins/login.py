@@ -122,7 +122,7 @@ def Main():
         return
     
     # Prompt for credential selection
-    menu_choice = crt.Dialog.Prompt("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC01\n\n[4] Local NetEng\n" , "LOGON MENU", "")
+    menu_choice = crt.Dialog.Prompt("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC\n\n[4] Local NetEng\n" , "LOGON MENU", "")
     match menu_choice:
         case "1":
             key = "ad_account"
