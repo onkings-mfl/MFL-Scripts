@@ -1,9 +1,12 @@
 # $language = "Python3"
 # $interface = "1.0"
 
+import os
+import csv
+
 crt.Screen.Synchronous = True
 
-def Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec):
+def Login(username, password, enable_pwd, timeout_sec):
     try:
         # First, read the existing screen buffer to check for prompts retroactively
         rows = crt.Screen.Rows
@@ -23,11 +26,11 @@ def Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec):
 
         # Check for password prompt first (if already past username)
         if any(var in recent_content for var in password_variations):
-            crt.Screen.Send(tacacspwd + "\r")
+            crt.Screen.Send(password + "\r")
             sent_password = True
         # Then check for username prompt
         elif any(var in recent_content for var in username_variations):
-            crt.Screen.Send(tacacsuser + "\r")
+            crt.Screen.Send(username + "\r")
             sent_username = True
 
         # If we sent username retroactively, wait for the follow-up password prompt with variations
@@ -36,7 +39,7 @@ def Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec):
             if crt.Screen.WaitForStrings(password_prompts, timeout_sec) == 0:
                 crt.Dialog.MessageBox("Timeout: No password prompt after retroactive username send.")
                 return
-            crt.Screen.Send(tacacspwd + "\r")
+            crt.Screen.Send(password + "\r")
             sent_password = True
 
         # If no retroactive action taken, proceed with waiting for initial prompts with expanded variations
@@ -52,14 +55,14 @@ def Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec):
             # Group results: first half for username variations, second for password
             num_username_vars = len(initial_prompts) // 2 + 1  # Adjust based on list
             if result <= num_username_vars:  # Username-like prompt detected
-                crt.Screen.Send(tacacsuser + "\r")
+                crt.Screen.Send(username + "\r")
                 if crt.Screen.WaitForStrings(initial_prompts[num_username_vars:], timeout_sec) == 0:  # Wait for password variations
                     crt.Dialog.MessageBox("Timeout: No password prompt after username.")
                     return
-                crt.Screen.Send(tacacspwd + "\r")
+                crt.Screen.Send(password + "\r")
             
             else:  # Password prompt directly
-                crt.Screen.Send(tacacspwd + "\r")
+                crt.Screen.Send(password + "\r")
 
         # After credentials, wait for shell prompt or error (expanded errors for robustness)
         shell_prompts = ["#", ">", "denied", "failed", "invalid", "bad", "incorrect", "authentication failure"]
@@ -94,39 +97,54 @@ def Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec):
 
 def Main():
     timeout_sec = 10  # General timeout for waits
+    
+    # Locate the CSV file
+    csv_path = "credentials.csv"
+    if not os.path.exists(csv_path):
+        csv_path = crt.Dialog.Prompt("Enter the path to credentials.csv:", "File Not Found", "")
+        if not csv_path or not os.path.exists(csv_path):
+            crt.Dialog.MessageBox("CSV file not found. Exiting.")
+            return
+    
+    # Read the CSV into a dictionary
+    creds = {}
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                key = row['credentials'].strip()
+                creds[key] = {
+                    'username': row['username'].strip(),
+                    'password': row['password'].strip()
+                }
+                # Use enable_password if present and not empty, else default to password
+                enable_pwd = row.get('enable_password', '').strip()
+                creds[key]['enable_password'] = enable_pwd if enable_pwd else row['password'].strip()
+    except Exception as e:
+        crt.Dialog.MessageBox("Error reading CSV: " + str(e))
+        return
 
-    MenuChoice = crt.Dialog.Prompt ("[1] UBUNTU Login\n\n[2] CCF TACACS\n\n[3] CCF TACACS LOCAL\n\n[4] CCF LOCAL\n" , "LOGON MENU", "")
+    MenuChoice = crt.Dialog.Prompt ("[1] ad_account\n\n[2] tac_NetEng\n\n[3] tac_DNAC01\n\n[4] local_NetEng\n" , "LOGON MENU", "")
     match MenuChoice:
         case "1":
-            # Placeholder for UBUNTU credentials - replace with actual
-            tacacsuser = "ubuntu_username"  # e.g., "username_here"
-            tacacspwd = "ubuntu_password"   # e.g., "password_here"
-            enable_pwd = tacacspwd  # Assume same for enable, or replace if different
-            Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec)
-            return
+            key = "ad_account"
         case "2":
-            # Placeholder for CCF TACACS credentials - replace with actual
-            tacacsuser = "ccf_tacacs_username"
-            tacacspwd = "ccf_tacacs_password"
-            enable_pwd = "ccf_tacacs_enable_password"  # Different enable password as specified
-            Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec)
-            return
+            key = "tac_NetEng"
         case "3":
-            # Placeholder for CCF TACACS LOCAL credentials - replace with actual
-            tacacsuser = "ccf_tacacs_local_username"
-            tacacspwd = "ccf_tacacs_local_password"
-            enable_pwd = tacacspwd  # Assume same for enable, or replace if different
-            Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec)
-            return
+            key = "tac_DNAC01"
         case "4":
-            # Placeholder for CCF LOCAL credentials - replace with actual
-            tacacsuser = "ccf_local_username"
-            tacacspwd = "ccf_local_password"
-            enable_pwd = tacacspwd  # Assume same for enable, or replace if different
-            Login(tacacsuser, tacacspwd, enable_pwd, timeout_sec)
-            return
+            key = "local_NetEng"
         case _:
             crt.Dialog.MessageBox("Exiting..", "Menu options")
             return
+    
+    if key not in creds:
+        crt.Dialog.MessageBox("Credentials not found for " + key)
+        return
+    
+    username = creds[key]['username']
+    password = creds[key]['password']
+    enable_pwd = creds[key]['enable_password']
+    Login(username, password, enable_pwd, timeout_sec)
 
 Main()
