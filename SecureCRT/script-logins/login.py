@@ -124,7 +124,7 @@ def Main():
         crt.Dialog.MessageBox("Error reading CSV: " + str(e))
         return
 
-    MenuChoice = crt.Dialog.Prompt ("[1] ad_account\n\n[2] tac_NetEng\n\n[3] tac_DNAC01\n\n[4] local_NetEng\n" , "LOGON MENU", "")
+    MenuChoice = crt.Dialog.Prompt ("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC01\n\n[4] Local NetEng\n" , "LOGON MENU", "")
     match MenuChoice:
         case "1":
             key = "ad_account"
