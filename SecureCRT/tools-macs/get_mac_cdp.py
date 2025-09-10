@@ -6,6 +6,7 @@ import os
 import csv
 import re
 import tempfile
+from collections import defaultdict
 
 # Get the script tab and screen
 tab = crt.GetScriptTab()
@@ -85,41 +86,49 @@ for line in desc_lines:
         desc = m.group(4).strip()
         port_desc[intf] = desc
 
-# Parse CDP neighbors into dict (port -> device_id)
-cdp_dict = {}
-cdp_re = re.compile(r'^(?P<device>\S+)\s+(?P<local>\S+)\s+\d+\s+[A-Z\s]+\s+\S+\s+\S+')
-in_table = False
-for line in cdp_lines:
-    line = line.strip()
-    if not line:
-        continue
-    if "Device ID" in line and "Local Intrfce" in line:
-        in_table = True
-        continue
-    if in_table:
-        m = cdp_re.match(line)
-        if m:
-            local_port = m.group('local')
-            device = m.group('device')
-            cdp_dict[local_port] = device
+# Function to parse neighbors (for both CDP and LLDP)
+def parse_neighbors(lines):
+    neighbor_dict = defaultdict(list)
+    in_table = False
+    current_entry = []
+    for line in lines:
+        original_line = line
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "Device ID" in stripped and ("Local Intrfce" in stripped or "Local Intf" in stripped):
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        is_continuation = original_line[0].isspace() if len(original_line) > 0 else False
+        if not is_continuation:
+            if current_entry:
+                process_entry(current_entry, neighbor_dict)
+            current_entry = [stripped]
+        else:
+            current_entry.append(stripped)
+    if current_entry:
+        process_entry(current_entry, neighbor_dict)
+    return neighbor_dict
 
-# Parse LLDP neighbors into dict (port -> device_id)
-lldp_dict = {}
-lldp_re = re.compile(r'^(?P<device>\S+)\s+(?P<local>\S+)\s+\d+\s+[A-Z\s]+\s+\S+')
-in_table = False
-for line in lldp_lines:
-    line = line.strip()
-    if not line:
-        continue
-    if "Device ID" in line and "Local Intf" in line:
-        in_table = True
-        continue
-    if in_table:
-        m = lldp_re.match(line)
-        if m:
-            local_port = m.group('local')
-            device = m.group('device')
-            lldp_dict[local_port] = device
+def process_entry(entry, neighbor_dict):
+    full = ' '.join(entry)
+    match = re.search(r'\s(\d+)\s', full)
+    if match:
+        pos = match.start()
+        before = full[:pos].strip()
+        d_m = re.match(r'(\S+)\s+(.*)', before)
+        if d_m:
+            device = d_m.group(1)
+            local = d_m.group(2)
+            if re.match(r'^(Gig|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Tw|Mg|Po|Port-channel)\s', local, re.I):
+                local = local.replace(' ', '')
+                neighbor_dict[local].append(device)
+
+# Parse CDP and LLDP
+cdp_dict = parse_neighbors(cdp_lines)
+lldp_dict = parse_neighbors(lldp_lines)
 
 # Function to abbreviate port names
 def abbreviate_port(port):
@@ -175,8 +184,8 @@ else:
         for vlan, mac, port in entries:
             abbrev_port = abbreviate_port(port)
             desc = port_desc.get(abbrev_port, port_desc.get(port, ""))
-            neighbor_cdp = cdp_dict.get(abbrev_port, cdp_dict.get(port, ""))
-            neighbor_lldp = lldp_dict.get(abbrev_port, lldp_dict.get(port, ""))
+            neighbor_cdp = ', '.join(cdp_dict.get(abbrev_port, cdp_dict.get(port, [])))
+            neighbor_lldp = ', '.join(lldp_dict.get(abbrev_port, lldp_dict.get(port, [])))
             writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp])
 
 # Clean up temp files
