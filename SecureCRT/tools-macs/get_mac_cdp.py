@@ -114,7 +114,7 @@ def normalize_port(port):
     abbrev = mappings.get(prefix, prefix)
     return abbrev + rest
 
-# Parse descriptions using split on multiple spaces
+# Parse descriptions into dict (port -> desc)
 port_desc = {}
 for line in desc_lines:
     line = line.strip()
@@ -228,6 +228,9 @@ for line in mac_lines:
             continue
         entries.append((vlan, mac, port))
 
+# Deduplicate entries by MAC and port
+entries = list(set(entries))
+
 # Add debug output
 debug_log = os.path.join(temp_dir, "debug.txt")
 with open(debug_log, 'w') as f:
@@ -246,15 +249,14 @@ if not save_path:
 else:
     with open(save_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "Device ID and platform", "LLDP Neighbor"])
+        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "Device ID", "Platform"])
         for vlan, mac, port in entries:
             norm_port = normalize_port(port)
             desc = port_desc.get(norm_port, "")
             cdp_neighbors = cdp_dict.get(norm_port, [])
-            lldp_neighbors = lldp_dict.get(norm_port, [])
-            device_and_platform = ', '.join(f"{d['device']} ({d['platform']})" if d['platform'] else d['device'] for d in cdp_neighbors) if cdp_neighbors else ""
-            neighbor_lldp = ', '.join(d['device'] for d in lldp_neighbors) if lldp_neighbors else ""
-            writer.writerow([hostname, mac, port, vlan, desc, device_and_platform, neighbor_lldp])
+            device_id = ', '.join(d['device'] for d in cdp_neighbors) if cdp_neighbors else ""
+            platform = ', '.join(d['platform'] for d in cdp_neighbors if d['platform']) if cdp_neighbors else ""
+            writer.writerow([hostname, mac, port, vlan, desc, device_id, platform])
 
 # Log files are preserved for debugging - no os.remove() calls
 
