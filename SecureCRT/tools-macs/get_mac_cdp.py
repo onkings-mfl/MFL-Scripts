@@ -73,91 +73,61 @@ with open(cdp_log, 'r') as f:
 with open(lldp_log, 'r') as f:
     lldp_lines = f.readlines()
 
-# Function to normalize port names using match/case
+# Function to normalize port names
 def normalize_port(port):
     port = port.replace(' ', '')
-    match port.split('/', 1)[0]:
-        case p if p.startswith(('Gi', 'Gig')):
-            return 'Gi' + port[len(p):]
-        case p if p.startswith(('Te', 'Ten')):
-            return 'Te' + port[len(p):]
-        case p if p.startswith(('Twe', 'TwentyFiveGigE', 'TwentyFiveGigabitEthernet')):
-            return 'Twe' + port[len(p):]
-        case p if p.startswith('Fo'):
-            return 'Fo' + port[len(p):]
-        case p if p.startswith('Hu'):
-            return 'Hu' + port[len(p):]
-        case p if p.startswith('Fa'):
-            return 'Fa' + port[len(p):]
-        case p if p.startswith('Eth'):
-            return 'Eth' + port[len(p):]
-        case p if p.startswith(('Fi', 'Fiv', 'FiveGigabitEthernet')):
-            return 'Fi' + port[len(p):]
-        case p if p.startswith(('Tw', 'Two', 'TwoPointFiveGigabitEthernet')):
-            return 'Tw' + port[len(p):]
-        case p if p.startswith(('Mg', 'MultigigabitEthernet')):
-            return 'Mg' + port[len(p):]
-        case p if p.startswith(('Po', 'Port-channel')):
-            return 'Po' + port[len(p):]
-        case p if p.startswith('GigabitEthernet'):
-            return 'Gi' + port[len('GigabitEthernet'):]
-        case p if p.startswith('TenGigabitEthernet'):
-            return 'Te' + port[len('TenGigabitEthernet'):]
-        case p if p.startswith('TwentyFiveGigabitEthernet'):
-            return 'Twe' + port[len('TwentyFiveGigabitEthernet'):]
-        case p if p.startswith('FortyGigabitEthernet'):
-            return 'Fo' + port[len('FortyGigabitEthernet'):]
-        case p if p.startswith('HundredGigabitEthernet'):
-            return 'Hu' + port[len('HundredGigabitEthernet'):]
-        case p if p.startswith('FastEthernet'):
-            return 'Fa' + port[len('FastEthernet'):]
-        case p if p.startswith('Ethernet'):
-            return 'Eth' + port[len('Ethernet'):]
-        case p if p.startswith('FiveGigabitEthernet'):
-            return 'Fi' + port[len('FiveGigabitEthernet'):]
-        case p if p.startswith('TwoPointFiveGigabitEthernet'):
-            return 'Tw' + port[len('TwoPointFiveGigabitEthernet'):]
-        case p if p.startswith('MultigigabitEthernet'):
-            return 'Mg' + port[len('MultigigabitEthernet'):]
-        case _:
-            return port
+    m = re.match(r'([A-Za-z]+)(.*)', port)
+    if not m:
+        return port
+    prefix = m.group(1)
+    rest = m.group(2)
+    mappings = {
+        'GigabitEthernet': 'Gi',
+        'Gig': 'Gi',
+        'Gi': 'Gi',
+        'TenGigabitEthernet': 'Te',
+        'Ten': 'Te',
+        'Te': 'Te',
+        'TwentyFiveGigabitEthernet': 'Twe',
+        'TwentyFiveGigE': 'Twe',
+        'Twe': 'Twe',
+        'FortyGigabitEthernet': 'Fo',
+        'Fo': 'Fo',
+        'HundredGigabitEthernet': 'Hu',
+        'Hu': 'Hu',
+        'FastEthernet': 'Fa',
+        'Fa': 'Fa',
+        'Ethernet': 'Eth',
+        'Eth': 'Eth',
+        'FiveGigabitEthernet': 'Fi',
+        'Fiv': 'Fi',
+        'Fi': 'Fi',
+        'TwoPointFiveGigabitEthernet': 'Tw',
+        'Two': 'Tw',
+        'Tw': 'Tw',
+        'MultigigabitEthernet': 'Mg',
+        'Mg': 'Mg',
+        'Portchannel': 'Po',
+        'Port-channel': 'Po',
+        'Po': 'Po'
+    }
+    abbrev = mappings.get(prefix, prefix)
+    return abbrev + rest
 
-# Parse descriptions using column positions (robust for different status formats)
+# Parse descriptions using split on multiple spaces
 port_desc = {}
-header_line = None
 for line in desc_lines:
-    stripped = line.strip()
-    if 'Interface' in stripped and 'Status' in stripped and 'Protocol' in stripped and 'Description' in stripped:
-        header_line = line  # Use raw line for positions
-        break
-
-if header_line:
-    pos_status = header_line.find('Status')
-    pos_protocol = header_line.find('Protocol', pos_status)
-    pos_desc = header_line.find('Description', pos_protocol)
-    for line in desc_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith('---') or line == header_line:
-            continue
-        intf = line[0:pos_status].strip() if pos_status > 0 else ''
-        status = line[pos_status:pos_protocol].strip() if pos_protocol > pos_status else ''
-        protocol = line[pos_protocol:pos_desc].strip() if pos_desc > pos_protocol else ''
-        desc = line[pos_desc:].strip() if pos_desc > 0 else ''
+    line = line.strip()
+    if not line or line.startswith('---') or 'Interface' in line and 'Status' in line:
+        continue
+    parts = re.split(r'\s{2,}', line, maxsplit=3)
+    if len(parts) >= 4:
+        intf = parts[0].strip()
+        status = parts[1].strip()
+        protocol = parts[2].strip()
+        desc = parts[3].strip()
         if intf:
             norm_intf = normalize_port(intf)
-            port_desc[norm_intf] = desc
-else:
-    # Fallback to regex if no header (unlikely, but for completeness)
-    desc_re = re.compile(r'^(\S+)\s+(.*?)\s+(up|down|notconnect|testing|dormant|unknown|notpresent|admin down)\s*(.*)$')
-    for line in desc_lines:
-        line = line.strip()
-        if not line or line.startswith('Interface') or line.startswith('---'):
-            continue
-        m = desc_re.match(line)
-        if m:
-            intf = m.group(1)
-            norm_intf = normalize_port(intf)
-            desc = m.group(4).strip()
             port_desc[norm_intf] = desc
 
 # Function to parse neighbors (for both CDP and LLDP)
@@ -276,16 +246,15 @@ if not save_path:
 else:
     with open(save_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor", "LLDP Neighbor", "Platform"])
+        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "Device ID and platform", "LLDP Neighbor"])
         for vlan, mac, port in entries:
             norm_port = normalize_port(port)
             desc = port_desc.get(norm_port, "")
             cdp_neighbors = cdp_dict.get(norm_port, [])
             lldp_neighbors = lldp_dict.get(norm_port, [])
-            neighbor_cdp = ', '.join(d['device'] for d in cdp_neighbors) if cdp_neighbors else ""
+            device_and_platform = ', '.join(f"{d['device']} ({d['platform']})" if d['platform'] else d['device'] for d in cdp_neighbors) if cdp_neighbors else ""
             neighbor_lldp = ', '.join(d['device'] for d in lldp_neighbors) if lldp_neighbors else ""
-            platforms = ', '.join(d['platform'] for d in cdp_neighbors if d['platform']) if cdp_neighbors else ""
-            writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp, platforms])
+            writer.writerow([hostname, mac, port, vlan, desc, device_and_platform, neighbor_lldp])
 
 # Log files are preserved for debugging - no os.remove() calls
 
