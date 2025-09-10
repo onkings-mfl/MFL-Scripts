@@ -13,13 +13,11 @@ scr = tab.Screen
 scr.Synchronous = True
 
 # Set terminal length to 0 to avoid paging
-tab.Send("terminal length 0\n")
+scr.Send("terminal length 0\n")
 scr.WaitForString("terminal length 0\n")
 
 # Get hostname
-tab.Send("show running-config | include hostname\n")
-scr.WaitForString("show running-config | include hostname\n")
-# Read the line after 'hostname '
+scr.Send("show running-config | include hostname\n")
 scr.WaitForString("hostname ")
 hostname = scr.ReadString("\n").strip()
 
@@ -32,18 +30,18 @@ mac_log = os.path.join(temp_dir, "mac_table.txt")
 desc_log = os.path.join(temp_dir, "interfaces_desc.txt")
 
 # Log MAC address table
-crt.Session.LogFileName = mac_log
-crt.Session.Log(True)
-tab.Send("show mac address-table\n")
+tab.Session.LogFileName = mac_log
+tab.Session.Log(True)
+scr.Send("show mac address-table\n")
 scr.WaitForString(hostname + "#")
-crt.Session.Log(False)
+tab.Session.Log(False)
 
 # Log interfaces descriptions
-crt.Session.LogFileName = desc_log
-crt.Session.Log(True)
-tab.Send("show interfaces description\n")
+tab.Session.LogFileName = desc_log
+tab.Session.Log(True)
+scr.Send("show interfaces description\n")
 scr.WaitForString(hostname + "#")
-crt.Session.Log(False)
+tab.Session.Log(False)
 
 # Read MAC output
 with open(mac_log, 'r') as f:
@@ -55,10 +53,10 @@ with open(desc_log, 'r') as f:
 
 # Parse descriptions into dict (port -> desc)
 port_desc = {}
-desc_re = re.compile(r'^(\S+)\s+(\S+(?:\s+\S+)?)\s+(up|down)\s*(.*)$')
+desc_re = re.compile(r'^(\S+)\s+((?:admin )?(?:down|up)(?:\s+down|up)?)\s+(up|down|notconnect|testing|dormant|unknown)\s*(.*)$')
 for line in desc_lines:
     line = line.strip()
-    if not line:
+    if not line or line.startswith('Interface') or line.startswith('---'):
         continue
     m = desc_re.match(line)
     if m:
@@ -71,13 +69,16 @@ def abbreviate_port(port):
     mappings = {
         "GigabitEthernet": "Gi",
         "TenGigabitEthernet": "Te",
+        "TwentyFiveGigE": "Twe",
         "TwentyFiveGigabitEthernet": "Twe",
         "FortyGigabitEthernet": "Fo",
         "HundredGigabitEthernet": "Hu",
         "FastEthernet": "Fa",
         "Ethernet": "Eth",
-        "FiveGigabitEthernet": "Fi",  # Assuming for 5G
-        "TwoPointFiveGigabitEthernet": "Tp"  # Assuming for 2.5G
+        "FiveGigabitEthernet": "Fi",
+        "TwoPointFiveGigabitEthernet": "Tw",
+        "MultigigabitEthernet": "Mg",
+        "Port-channel": "Po"
     }
     for full, abbrev in mappings.items():
         if port.startswith(full):
@@ -89,25 +90,20 @@ entries = []
 mac_pattern = re.compile(r'^[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}$')
 for line in mac_lines:
     line = line.strip()
-    if not line:
+    if not line or line.startswith('Vlan') or line.startswith('----') or line.startswith('Unicast') or line.startswith('vlan'):
         continue
-    parts = line.split()
-    if len(parts) in [4, 5] and len(parts) > 1 and mac_pattern.match(parts[1]):
+    parts = re.split(r'\s+', line)
+    if len(parts) >= 4 and mac_pattern.match(parts[1]):
         vlan = parts[0]
         mac = parts[1]
         typ = parts[2]
-        if len(parts) == 5:
-            port = parts[4]
-        else:
-            port = parts[3]
-        # Skip if VLAN not numeric
+        port_index = 3 if len(parts) == 4 else 4
+        port = ' '.join(parts[port_index:]) if port_index + 1 < len(parts) else parts[port_index]
         if not vlan.isdigit():
             continue
-        # Ignore disallowed ports
         port_lower = port.lower()
-        if any(keyword in port_lower for keyword in ["cpu", "switch", "vl", "po", "port-channel"]):
+        if any(keyword in port_lower for keyword in ["cpu", "switch", "vl", "vlan", "po", "port-channel"]):
             continue
-        # Add to entries
         entries.append((vlan, mac, port))
 
 # Prompt for CSV save location and name
@@ -124,7 +120,7 @@ else:
             desc = port_desc.get(abbrev_port, port_desc.get(port, ""))
             writer.writerow([hostname, mac, port, vlan, desc])
 
-# Clean up temp files (optional)
+# Clean up temp files
 os.remove(mac_log)
 os.remove(desc_log)
 
