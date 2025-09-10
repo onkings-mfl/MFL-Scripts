@@ -1,7 +1,6 @@
 # SecureCRT Python Script to extract MAC address table and save to CSV
 # Compatible with SecureCRT 9.6.3, Python 3.13.7 x64
 # Works for Cisco ISR4431, ISR1001X, Catalyst 3850, 9300, 9410, 9606, 4510
-
 import os
 import csv
 import re
@@ -120,37 +119,23 @@ for line in desc_lines:
 
 # Function to parse CDP neighbors detail
 def parse_cdp_detail(lines):
-    neighbor_dict = defaultdict(list)
-    current_block = []
-    for line in lines:
-        line = line.strip()
-        if line == '-------------------------':
-            if current_block:
-                process_cdp_block(current_block, neighbor_dict)
-            current_block = []
-        else:
-            if line:
-                current_block.append(line)
-    if current_block:
-        process_cdp_block(current_block, neighbor_dict)
-    return neighbor_dict
-
-def process_cdp_block(block, neighbor_dict):
-    device = ''
-    platform = ''
-    local = ''
-    for line in block:
-        if line.startswith('Device ID: '):
-            device = line[len('Device ID: '):].strip()
-        elif line.startswith('Platform: '):
-            platform = line[len('Platform: '):].rstrip(',').strip()
+    neighbor_dict = defaultdict(list, {})
+    i = 0
+    while i < len(lines) - 2:
+        device_line = lines[i].strip()
+        platform_line = lines[i+1].strip()
+        interface_line = lines[i+2].strip()
+        if device_line.startswith('Device ID:') and platform_line.startswith('Platform:') and interface_line.startswith('Interface:'):
+            device = device_line[len('Device ID: '):].strip()
+            platform = platform_line[len('Platform: '):].rstrip(',').strip()
             # Filter platform to show only the model
             platform = re.sub(r',\s*Capabilities:.*', '', platform).replace('Cisco ', '').replace('cisco ', '').strip()
-        elif line.startswith('Interface: '):
-            local = line[len('Interface: '):].split(',', 1)[0].strip()
-    if local and device:
-        norm_local = normalize_port(local)
-        neighbor_dict[norm_local].append({'device': device, 'platform': platform})
+            local = interface_line[len('Interface: '):].split(',', 1)[0].strip()
+            if local and device:
+                norm_local = normalize_port(local)
+                neighbor_dict[norm_local].append({'device': device, 'platform': platform})
+        i += 3
+    return neighbor_dict
 
 # Parse CDP
 cdp_dict = parse_cdp_detail(cdp_lines)
@@ -180,13 +165,13 @@ for line in mac_lines:
 entries = list(set(entries))
 
 # Add debug output
-#debug_log = os.path.join(temp_dir, "debug.txt")
-#with open(debug_log, 'w') as f:
-#    f.write(f"Hostname: {hostname}\n")
-#    f.write(f"Port Descriptions (dict): {port_desc}\n\n")
-#    f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
-#    f.write(f"MAC Entries (list length): {len(entries)}\n")
-#    f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
+debug_log = os.path.join(temp_dir, "debug.txt")
+with open(debug_log, 'w') as f:
+    f.write(f"Hostname: {hostname}\n")
+    f.write(f"Port Descriptions (dict): {port_desc}\n\n")
+    f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
+    f.write(f"MAC Entries (list length): {len(entries)}\n")
+    f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
 
 # Prompt for CSV save location and name
 default_filename = hostname + "_mac_table.csv"
