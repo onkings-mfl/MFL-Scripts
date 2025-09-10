@@ -1,6 +1,5 @@
 # $language = "Python3"
 # $interface = "1.0"
-
 import os
 import csv
 
@@ -8,81 +7,80 @@ crt.Screen.Synchronous = True
 
 def Login(username, password, enable_pwd, timeout_sec):
     try:
-        # First, read the existing screen buffer to check for prompts retroactively
-        rows = crt.Screen.Rows
-        cols = crt.Screen.Columns
-        screen_content = crt.Screen.Get2(1, 1, rows, cols).lower()  # Get entire screen, case-insensitive for matching
-        
-        # To make it more robust, extract the last few lines where the prompt is likely to be
-        screen_lines = screen_content.splitlines()
-        recent_content = "\n".join(screen_lines[-5:])  # Check last 5 lines to avoid banner matches
+        # Retroactive check: Get the current prompt where the cursor is
+        current_row = crt.Screen.CurrentRow
+        current_col = crt.Screen.CurrentColumn
+        # Get the text on the current row up to the cursor position (the prompt)
+        prompt = crt.Screen.Get(current_row, 1, current_row, current_col - 1).strip()
+        prompt_lower = prompt.lower()
         
         sent_username = False
         sent_password = False
-
-        # Expanded prompt variations for retroactive check
-        password_variations = ["password:", "passcode:", "passwd:", "secret:", "enable password:"]
-        username_variations = ["username:", "login:", "user:", "login as:", "user name:"]
-
-        # Check for password prompt first (if already past username)
-        if any(var in recent_content for var in password_variations):
+        
+        # Lowercase variations for robust matching
+        username_variations = ["username:", "login:", "user:", "login as:", "user name:", "userid:", "name:", "logon:"]
+        password_variations = ["password:", "passcode:", "passwd:", "secret:", "enable password:", "enable secret:", "pin:", "code:"]
+        
+        # Check if current prompt matches a password variation (endswith for precision)
+        if any(prompt_lower.endswith(var) for var in password_variations):
             crt.Screen.Send(password + "\r")
             sent_password = True
-        # Then check for username prompt
-        elif any(var in recent_content for var in username_variations):
+        # Check for username variation
+        elif any(prompt_lower.endswith(var) for var in username_variations):
             crt.Screen.Send(username + "\r")
             sent_username = True
-
-        # If we sent username retroactively, wait for the follow-up password prompt with variations
+        
+        # If we sent username retroactively, wait for the follow-up password prompt
         if sent_username and not sent_password:
-            password_prompts = [var.split(':')[0][1:] + ":" for var in password_variations]  # Partials like "assword:", "asscode:"
+            password_prompts = ["Password:", "password:", "Passcode:", "passcode:", "Passwd:", "passwd:", "Secret:", "secret:", 
+                                "Enable password:", "enable password:", "Enable secret:", "enable secret:", "PIN:", "pin:", "Code:", "code:"]
             if crt.Screen.WaitForStrings(password_prompts, timeout_sec) == 0:
                 crt.Dialog.MessageBox("Timeout: No password prompt after retroactive username send.")
                 return
             crt.Screen.Send(password + "\r")
             sent_password = True
-
-        # If no retroactive action taken, proceed with waiting for initial prompts with expanded variations
+        
+        # If no retroactive action taken, proceed with waiting for initial prompts
         if not sent_username and not sent_password:
-            # Partials for more flexibility: e.g., "sername:", "ogin:", "assword:", etc.
-            initial_prompts = ["sername:", "ogin:", "ser:", "ser name:", "assword:", "asscode:", "asswd:", "ecret:", "nable password:"]
-            result = crt.Screen.WaitForStrings(initial_prompts, timeout_sec)
+            username_prompts = ["Username:", "username:", "Login:", "login:", "User:", "user:", "Login as:", "login as:", 
+                                "User name:", "user name:", "Userid:", "userid:", "Name:", "name:", "Logon:", "logon:"]
+            password_prompts = ["Password:", "password:", "Passcode:", "passcode:", "Passwd:", "passwd:", "Secret:", "secret:", 
+                                "Enable password:", "enable password:", "Enable secret:", "enable secret:", "PIN:", "pin:", "Code:", "code:"]
+            initial_prompts = username_prompts + password_prompts
             
+            result = crt.Screen.WaitForStrings(initial_prompts, timeout_sec)
             if result == 0:
                 crt.Dialog.MessageBox("Timeout: No username or password prompt found.")
                 return
             
-            # Group results: first half for username variations, second for password
-            num_username_vars = len(initial_prompts) // 2 + 1  # Adjust based on list
-            if result <= num_username_vars:  # Username-like prompt detected
+            num_username = len(username_prompts)
+            if result <= num_username:  # Username-like prompt detected
                 crt.Screen.Send(username + "\r")
-                if crt.Screen.WaitForStrings(initial_prompts[num_username_vars:], timeout_sec) == 0:  # Wait for password variations
+                if crt.Screen.WaitForStrings(password_prompts, timeout_sec) == 0:
                     crt.Dialog.MessageBox("Timeout: No password prompt after username.")
                     return
                 crt.Screen.Send(password + "\r")
-            
             else:  # Password prompt directly
                 crt.Screen.Send(password + "\r")
-
-        # After credentials, wait for shell prompt or error (expanded errors for robustness)
-        shell_prompts = ["#", ">", "denied", "failed", "invalid", "bad", "incorrect", "authentication failure"]
-        result = crt.Screen.WaitForStrings(shell_prompts, timeout_sec)
         
+        # After credentials, wait for shell prompt or error
+        shell_prompts = ["#", ">", "% Access denied", "Access denied", "% Authentication failed", "Authentication failed", 
+                         "% Login invalid", "Login invalid", "% Bad passwords", "Bad passwords", "% Bad secrets", "Bad secrets", 
+                         "incorrect", "authentication failure"]
+        result = crt.Screen.WaitForStrings(shell_prompts, timeout_sec)
         if result == 0:
             crt.Dialog.MessageBox("Timeout: No response after credentials.")
             return
-        
         elif result >= 3:  # Error strings detected (indices 3+)
             crt.Dialog.MessageBox("Login failed: Authentication error detected.")
             return
-        
         elif result == 1:  # Already at privileged mode (#)
-            return  # Script exits here, session remains connected
-        
+            return  # Exit script, session remains
         elif result == 2:  # User mode (>)
-            crt.Screen.Send("en\r")  # Or "enable" if configured differently, but "en" is common abbreviation
-            # Wait for enable password prompt with variations
-            enable_prompts = [var.split(':')[0][1:] + ":" for var in password_variations]
+            crt.Screen.Send("en\r")  # Use "en" abbreviation for enable
+            # Wait for enable password prompt
+            enable_prompts = ["Password:", "password:", "Passcode:", "passcode:", "Passwd:", "passwd:", "Secret:", "secret:", 
+                              "Enable password:", "enable password:", "Enable secret:", "enable secret:"]
             if crt.Screen.WaitForStrings(enable_prompts, timeout_sec) == 0:
                 crt.Dialog.MessageBox("Timeout: No enable password prompt.")
                 return
@@ -90,18 +88,17 @@ def Login(username, password, enable_pwd, timeout_sec):
             if not crt.Screen.WaitForString("#", timeout_sec):
                 crt.Dialog.MessageBox("Timeout: Failed to reach privileged mode.")
                 return
-            return  # Script exits here, session remains connected
-
+        return  # Exit script, session remains
     except Exception as e:
         crt.Dialog.MessageBox("Script error: " + str(e))
 
 def Main():
     timeout_sec = 10  # General timeout for waits
     
-    # Locate the CSV file
-    csv_path = "C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
+    # Locate the CSV file (fixed path initially)
+    csv_path = r"C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
     if not os.path.exists(csv_path):
-        csv_path = crt.Dialog.Prompt("Enter the path to credentials.csv:", "File Not Found", "")
+        csv_path = crt.Dialog.Prompt("Enter the path to the credentials CSV file:", "File Not Found", "")
         if not csv_path or not os.path.exists(csv_path):
             crt.Dialog.MessageBox("CSV file not found. Exiting.")
             return
@@ -123,9 +120,10 @@ def Main():
     except Exception as e:
         crt.Dialog.MessageBox("Error reading CSV: " + str(e))
         return
-
-    MenuChoice = crt.Dialog.Prompt ("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC01\n\n[4] Local NetEng\n" , "LOGON MENU", "")
-    match MenuChoice:
+    
+    # Prompt for credential selection
+    menu_choice = crt.Dialog.Prompt("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC01\n\n[4] Local NetEng\n" , "LOGON MENU", "")
+    match menu_choice:
         case "1":
             key = "ad_account"
         case "2":
@@ -145,6 +143,7 @@ def Main():
     username = creds[key]['username']
     password = creds[key]['password']
     enable_pwd = creds[key]['enable_password']
+    
     Login(username, password, enable_pwd, timeout_sec)
 
 Main()
