@@ -211,12 +211,15 @@ def process_entry(entry, neighbor_dict, is_cdp=False):
             local = d_m.group(2)
         else:
             return
+    # Clean up LLDP device IDs by removing trailing domain-like suffixes (e.g., .cc.a)
+    if not is_cdp:
+        device = re.sub(r'\.cc\..*$', '', device)
     # Parse after for capabilities, platform, port ID
     after_parts = re.split(r'\s+', after)
     k = 0
     known_caps = set(['R', 'T', 'B', 'S', 'H', 'I', 'r', 'P', 'D', 'C', 'M'])
     caps = []
-    while k < len(after_parts) and (after_parts[k] in known_caps or after_parts[k].endswith(',')):
+    while k < len(after_parts) and (after_parts[k] in known_caps or after_parts[k].endswith(',') or ',' in after_parts[k]):
         caps.append(after_parts[k])
         k += 1
     platform = ''
@@ -277,9 +280,11 @@ else:
         for vlan, mac, port in entries:
             norm_port = normalize_port(port)
             desc = port_desc.get(norm_port, "")
-            neighbor_cdp = ', '.join(d['device'] for d in cdp_dict.get(norm_port, []))
-            neighbor_lldp = ', '.join(d['device'] for d in lldp_dict.get(norm_port, []))
-            platforms = ', '.join(d['platform'] for d in cdp_dict.get(norm_port, []) if d['platform'])
+            cdp_neighbors = cdp_dict.get(norm_port, [])
+            lldp_neighbors = lldp_dict.get(norm_port, [])
+            neighbor_cdp = ', '.join(d['device'] for d in cdp_neighbors) if cdp_neighbors else ""
+            neighbor_lldp = ', '.join(d['device'] for d in lldp_neighbors) if lldp_neighbors else ""
+            platforms = ', '.join(d['platform'] for d in cdp_neighbors if d['platform']) if cdp_neighbors else ""
             writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp, platforms])
 
 # Log files are preserved for debugging - no os.remove() calls
