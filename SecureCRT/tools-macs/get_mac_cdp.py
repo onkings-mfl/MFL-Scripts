@@ -73,6 +73,54 @@ with open(cdp_log, 'r') as f:
 with open(lldp_log, 'r') as f:
     lldp_lines = f.readlines()
 
+# Function to normalize port names
+def normalize_port(port):
+    port = port.replace(' ', '')
+    mappings = {
+        'Gi': 'Gi',
+        'Gig': 'Gi',
+        'Te': 'Te',
+        'Ten': 'Te',
+        'Twe': 'Twe',
+        'TwentyFiveGigE': 'Twe',
+        'TwentyFiveGigabitEthernet': 'Twe',
+        'Fo': 'Fo',
+        'Hu': 'Hu',
+        'Fa': 'Fa',
+        'Eth': 'Eth',
+        'Fi': 'Fi',
+        'Fiv': 'Fi',
+        'FiveGigabitEthernet': 'Fi',
+        'Tw': 'Tw',
+        'Two': 'Tw',
+        'TwoPointFiveGigabitEthernet': 'Tw',
+        'Mg': 'Mg',
+        'MultigigabitEthernet': 'Mg',
+        'Po': 'Po',
+        'Port-channel': 'Po'
+    }
+    for prefix, std in mappings.items():
+        if port.startswith(prefix):
+            return std + port[len(prefix):]
+    # If full name
+    full_mappings = {
+        "GigabitEthernet": "Gi",
+        "TenGigabitEthernet": "Te",
+        "TwentyFiveGigabitEthernet": "Twe",
+        "FortyGigabitEthernet": "Fo",
+        "HundredGigabitEthernet": "Hu",
+        "FastEthernet": "Fa",
+        "Ethernet": "Eth",
+        "FiveGigabitEthernet": "Fi",
+        "TwoPointFiveGigabitEthernet": "Tw",
+        "MultigigabitEthernet": "Mg",
+        "Port-channel": "Po"
+    }
+    for full, abbrev in full_mappings.items():
+        if port.startswith(full):
+            return abbrev + port[len(full):]
+    return port
+
 # Parse descriptions into dict (port -> desc)
 port_desc = {}
 desc_re = re.compile(r'^(\S+)\s+(.*?)\s+(up|down|notconnect|testing|dormant|unknown|notpresent)\s*(.*)$')
@@ -83,8 +131,9 @@ for line in desc_lines:
     m = desc_re.match(line)
     if m:
         intf = m.group(1)
+        norm_intf = normalize_port(intf)
         desc = m.group(4).strip()
-        port_desc[intf] = desc
+        port_desc[norm_intf] = desc
 
 # Function to parse neighbors (for both CDP and LLDP)
 def parse_neighbors(lines):
@@ -93,10 +142,10 @@ def parse_neighbors(lines):
     current_entry = []
     for line in lines:
         original_line = line
-        stripped = line.strip()
-        if not stripped:
+        line = line.strip()
+        if not line:
             continue
-        if "Device ID" in stripped and ("Local Intrfce" in stripped or "Local Intf" in stripped):
+        if "Device ID" in line and ("Local Intrfce" in line or "Local Intf" in line):
             in_table = True
             continue
         if not in_table:
@@ -105,9 +154,9 @@ def parse_neighbors(lines):
         if not is_continuation:
             if current_entry:
                 process_entry(current_entry, neighbor_dict)
-            current_entry = [stripped]
+            current_entry = [line]
         else:
-            current_entry.append(stripped)
+            current_entry.append(line)
     if current_entry:
         process_entry(current_entry, neighbor_dict)
     return neighbor_dict
@@ -122,34 +171,12 @@ def process_entry(entry, neighbor_dict):
         if d_m:
             device = d_m.group(1)
             local = d_m.group(2)
-            if re.match(r'^(Gig|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Tw|Mg|Po|Port-channel)\s', local, re.I):
-                local = local.replace(' ', '')
-                neighbor_dict[local].append(device)
+            norm_local = normalize_port(local)
+            neighbor_dict[norm_local].append(device)
 
 # Parse CDP and LLDP
 cdp_dict = parse_neighbors(cdp_lines)
 lldp_dict = parse_neighbors(lldp_lines)
-
-# Function to abbreviate port names
-def abbreviate_port(port):
-    mappings = {
-        "GigabitEthernet": "Gi",
-        "TenGigabitEthernet": "Te",
-        "TwentyFiveGigE": "Twe",
-        "TwentyFiveGigabitEthernet": "Twe",
-        "FortyGigabitEthernet": "Fo",
-        "HundredGigabitEthernet": "Hu",
-        "FastEthernet": "Fa",
-        "Ethernet": "Eth",
-        "FiveGigabitEthernet": "Fi",
-        "TwoPointFiveGigabitEthernet": "Tw",
-        "MultigigabitEthernet": "Mg",
-        "Port-channel": "Po"
-    }
-    for full, abbrev in mappings.items():
-        if port.startswith(full):
-            return abbrev + port[len(full):]
-    return port
 
 # Parse MAC table
 entries = []
@@ -182,10 +209,10 @@ else:
         writer = csv.writer(csvfile)
         writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor", "LLDP Neighbor"])
         for vlan, mac, port in entries:
-            abbrev_port = abbreviate_port(port)
-            desc = port_desc.get(abbrev_port, port_desc.get(port, ""))
-            neighbor_cdp = ', '.join(cdp_dict.get(abbrev_port, cdp_dict.get(port, [])))
-            neighbor_lldp = ', '.join(lldp_dict.get(abbrev_port, lldp_dict.get(port, [])))
+            norm_port = normalize_port(port)
+            desc = port_desc.get(norm_port, "")
+            neighbor_cdp = ', '.join(cdp_dict.get(norm_port, []))
+            neighbor_lldp = ', '.join(lldp_dict.get(norm_port, []))
             writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp])
 
 # Clean up temp files
