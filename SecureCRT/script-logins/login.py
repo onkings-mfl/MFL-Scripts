@@ -99,7 +99,7 @@ def Main():
     timeout_sec = 10  # General timeout for waits
     
     # Locate the CSV file
-    csv_path = "credentials.csv"
+    csv_path = "C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
     if not os.path.exists(csv_path):
         csv_path = crt.Dialog.Prompt("Enter the path to credentials.csv:", "File Not Found", "")
         if not csv_path or not os.path.exists(csv_path):
