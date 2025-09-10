@@ -180,13 +180,13 @@ for line in mac_lines:
 entries = list(set(entries))
 
 # Add debug output
-debug_log = os.path.join(temp_dir, "debug.txt")
-with open(debug_log, 'w') as f:
-    f.write(f"Hostname: {hostname}\n")
-    f.write(f"Port Descriptions (dict): {port_desc}\n\n")
-    f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
-    f.write(f"MAC Entries (list length): {len(entries)}\n")
-    f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
+#debug_log = os.path.join(temp_dir, "debug.txt")
+#with open(debug_log, 'w') as f:
+#    f.write(f"Hostname: {hostname}\n")
+#    f.write(f"Port Descriptions (dict): {port_desc}\n\n")
+#    f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
+#    f.write(f"MAC Entries (list length): {len(entries)}\n")
+#    f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
 
 # Prompt for CSV save location and name
 default_filename = hostname + "_mac_table.csv"
