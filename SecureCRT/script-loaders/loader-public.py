@@ -4,7 +4,7 @@
 import urllib.request
 
 # Replace with your GitHub raw script URL
-url = "https://raw.githubusercontent.com/yourusername/yourrepo/main/yourscript.py"
+url = "https://raw.githubusercontent.com/onkings-mfl/MFL-Scripts/34611dc505dfddc85523bcd4aa2ac1dff8e9fd35/SecureCRT/script-logins/login.py"
 
 try:
     with urllib.request.urlopen(url) as response:
