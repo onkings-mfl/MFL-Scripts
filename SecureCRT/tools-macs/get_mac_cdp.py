@@ -27,7 +27,6 @@ temp_dir = tempfile.gettempdir()
 mac_log = os.path.join(temp_dir, "mac_table.txt")
 desc_log = os.path.join(temp_dir, "interfaces_desc.txt")
 cdp_log = os.path.join(temp_dir, "cdp_neighbors.txt")
-lldp_log = os.path.join(temp_dir, "lldp_neighbors.txt")
 
 # Log MAC address table
 tab.Session.LogFileName = mac_log
@@ -43,17 +42,10 @@ scr.Send("show interfaces description\r")
 scr.WaitForString(prompt)
 tab.Session.Log(False)
 
-# Log CDP neighbors
+# Log CDP neighbors detail
 tab.Session.LogFileName = cdp_log
 tab.Session.Log(True)
-scr.Send("show cdp neighbors\r")
-scr.WaitForString(prompt)
-tab.Session.Log(False)
-
-# Log LLDP neighbors
-tab.Session.LogFileName = lldp_log
-tab.Session.Log(True)
-scr.Send("show lldp neighbors\r")
+scr.Send("show cdp neighbors detail\r")
 scr.WaitForString(prompt)
 tab.Session.Log(False)
 
@@ -68,10 +60,6 @@ with open(desc_log, 'r') as f:
 # Read CDP output
 with open(cdp_log, 'r') as f:
     cdp_lines = f.readlines()
-
-# Read LLDP output
-with open(lldp_log, 'r') as f:
-    lldp_lines = f.readlines()
 
 # Function to normalize port names
 def normalize_port(port):
@@ -130,82 +118,40 @@ for line in desc_lines:
             norm_intf = normalize_port(intf)
             port_desc[norm_intf] = desc
 
-# Function to parse neighbors (for both CDP and LLDP)
-def parse_neighbors(lines, is_cdp=False):
+# Function to parse CDP neighbors detail
+def parse_cdp_detail(lines):
     neighbor_dict = defaultdict(list)
-    in_table = False
-    current_entry = []
+    current_block = []
     for line in lines:
-        original_line = line
         line = line.strip()
-        if not line:
-            continue
-        if "Device ID" in line and ("Local Intrfce" in line or "Local Intf" in line):
-            in_table = True
-            continue
-        if not in_table:
-            continue
-        is_continuation = original_line[0].isspace() if len(original_line) > 0 else False
-        if not is_continuation:
-            if current_entry:
-                process_entry(current_entry, neighbor_dict, is_cdp)
-            current_entry = [line]
+        if line == '-------------------------':
+            if current_block:
+                process_cdp_block(current_block, neighbor_dict)
+            current_block = []
         else:
-            current_entry.append(line)
-    if current_entry:
-        process_entry(current_entry, neighbor_dict, is_cdp)
+            if line:
+                current_block.append(line)
+    if current_block:
+        process_cdp_block(current_block, neighbor_dict)
     return neighbor_dict
 
-def process_entry(entry, neighbor_dict, is_cdp=False):
-    full = ' '.join(entry)
-    match = re.search(r'\s(\d+)\s', full)
-    if not match:
-        return
-    hold = match.group(1)
-    pos = match.start()
-    before = full[:pos].strip()
-    after = full[pos + len(match.group()):].strip()
-    # Split before into device and local
-    # Handle no-space LLDP (e.g., "FL-WNN-02-AP013.cc.aGi4/26")
-    port_re = re.compile(r'(Gi|Gig|Te|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Fiv|Tw|Two|Mg|Po)[0-9]')
-    m = port_re.search(before)
-    if m:
-        pos_port = m.start()
-        device = before[:pos_port].strip()
-        local = before[pos_port:].strip()
-    else:
-        # CDP style with space
-        d_m = re.match(r'(\S+)\s+(.*)', before)
-        if d_m:
-            device = d_m.group(1)
-            local = d_m.group(2)
-        else:
-            return
-    # Clean up LLDP device IDs by removing trailing domain-like suffixes (e.g., .cc.a)
-    if not is_cdp:
-        device = re.sub(r'\.cc\..*$', '', device)
-    # Parse after for capabilities, platform, port ID
-    after_parts = re.split(r'\s+', after)
-    k = 0
-    known_caps = set(['R', 'T', 'B', 'S', 'H', 'I', 'r', 'P', 'D', 'C', 'M'])
-    caps = []
-    while k < len(after_parts) and (after_parts[k] in known_caps or after_parts[k].endswith(',') or ',' in after_parts[k]):
-        caps.append(after_parts[k])
-        k += 1
+def process_cdp_block(block, neighbor_dict):
+    device = ''
     platform = ''
-    if is_cdp and len(after_parts) > k:
-        # Platform is next, up to before last two (usually port ID)
-        platform_end = len(after_parts) - 2 if len(after_parts) - k > 2 else len(after_parts)
-        platform = ' '.join(after_parts[k:platform_end]).strip()
-    norm_local = normalize_port(local)
-    neighbor_dict[norm_local].append({
-        'device': device,
-        'platform': platform
-    })
+    local = ''
+    for line in block:
+        if line.startswith('Device ID: '):
+            device = line[len('Device ID: '):].strip()
+        elif line.startswith('Platform: '):
+            platform = line[len('Platform: '):].rstrip(',').strip()
+        elif line.startswith('Interface: '):
+            local = line[len('Interface: '):].split(',', 1)[0].strip()
+    if local and device:
+        norm_local = normalize_port(local)
+        neighbor_dict[norm_local].append({'device': device, 'platform': platform})
 
-# Parse CDP and LLDP
-cdp_dict = parse_neighbors(cdp_lines, is_cdp=True)
-lldp_dict = parse_neighbors(lldp_lines, is_cdp=False)
+# Parse CDP
+cdp_dict = parse_cdp_detail(cdp_lines)
 
 # Parse MAC table
 entries = []
@@ -237,7 +183,6 @@ with open(debug_log, 'w') as f:
     f.write(f"Hostname: {hostname}\n")
     f.write(f"Port Descriptions (dict): {port_desc}\n\n")
     f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
-    f.write(f"LLDP Neighbors (dict): {lldp_dict}\n\n")
     f.write(f"MAC Entries (list length): {len(entries)}\n")
     f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
 
