@@ -73,67 +73,92 @@ with open(cdp_log, 'r') as f:
 with open(lldp_log, 'r') as f:
     lldp_lines = f.readlines()
 
-# Function to normalize port names
+# Function to normalize port names using match/case
 def normalize_port(port):
     port = port.replace(' ', '')
-    mappings = {
-        'Gi': 'Gi',
-        'Gig': 'Gi',
-        'Te': 'Te',
-        'Ten': 'Te',
-        'Twe': 'Twe',
-        'TwentyFiveGigE': 'Twe',
-        'TwentyFiveGigabitEthernet': 'Twe',
-        'Fo': 'Fo',
-        'Hu': 'Hu',
-        'Fa': 'Fa',
-        'Eth': 'Eth',
-        'Fi': 'Fi',
-        'Fiv': 'Fi',
-        'FiveGigabitEthernet': 'Fi',
-        'Tw': 'Tw',
-        'Two': 'Tw',
-        'TwoPointFiveGigabitEthernet': 'Tw',
-        'Mg': 'Mg',
-        'MultigigabitEthernet': 'Mg',
-        'Po': 'Po',
-        'Port-channel': 'Po'
-    }
-    for prefix, std in mappings.items():
-        if port.startswith(prefix):
-            return std + port[len(prefix):]
-    # If full name
-    full_mappings = {
-        "GigabitEthernet": "Gi",
-        "TenGigabitEthernet": "Te",
-        "TwentyFiveGigabitEthernet": "Twe",
-        "FortyGigabitEthernet": "Fo",
-        "HundredGigabitEthernet": "Hu",
-        "FastEthernet": "Fa",
-        "Ethernet": "Eth",
-        "FiveGigabitEthernet": "Fi",
-        "TwoPointFiveGigabitEthernet": "Tw",
-        "MultigigabitEthernet": "Mg",
-        "Port-channel": "Po"
-    }
-    for full, abbrev in full_mappings.items():
-        if port.startswith(full):
-            return abbrev + port[len(full):]
-    return port
+    match port.split('/', 1)[0]:
+        case p if p.startswith(('Gi', 'Gig')):
+            return 'Gi' + port[len(p):]
+        case p if p.startswith(('Te', 'Ten')):
+            return 'Te' + port[len(p):]
+        case p if p.startswith(('Twe', 'TwentyFiveGigE', 'TwentyFiveGigabitEthernet')):
+            return 'Twe' + port[len(p):]
+        case p if p.startswith('Fo'):
+            return 'Fo' + port[len(p):]
+        case p if p.startswith('Hu'):
+            return 'Hu' + port[len(p):]
+        case p if p.startswith('Fa'):
+            return 'Fa' + port[len(p):]
+        case p if p.startswith('Eth'):
+            return 'Eth' + port[len(p):]
+        case p if p.startswith(('Fi', 'Fiv', 'FiveGigabitEthernet')):
+            return 'Fi' + port[len(p):]
+        case p if p.startswith(('Tw', 'Two', 'TwoPointFiveGigabitEthernet')):
+            return 'Tw' + port[len(p):]
+        case p if p.startswith(('Mg', 'MultigigabitEthernet')):
+            return 'Mg' + port[len(p):]
+        case p if p.startswith(('Po', 'Port-channel')):
+            return 'Po' + port[len(p):]
+        case p if p.startswith('GigabitEthernet'):
+            return 'Gi' + port[len('GigabitEthernet'):]
+        case p if p.startswith('TenGigabitEthernet'):
+            return 'Te' + port[len('TenGigabitEthernet'):]
+        case p if p.startswith('TwentyFiveGigabitEthernet'):
+            return 'Twe' + port[len('TwentyFiveGigabitEthernet'):]
+        case p if p.startswith('FortyGigabitEthernet'):
+            return 'Fo' + port[len('FortyGigabitEthernet'):]
+        case p if p.startswith('HundredGigabitEthernet'):
+            return 'Hu' + port[len('HundredGigabitEthernet'):]
+        case p if p.startswith('FastEthernet'):
+            return 'Fa' + port[len('FastEthernet'):]
+        case p if p.startswith('Ethernet'):
+            return 'Eth' + port[len('Ethernet'):]
+        case p if p.startswith('FiveGigabitEthernet'):
+            return 'Fi' + port[len('FiveGigabitEthernet'):]
+        case p if p.startswith('TwoPointFiveGigabitEthernet'):
+            return 'Tw' + port[len('TwoPointFiveGigabitEthernet'):]
+        case p if p.startswith('MultigigabitEthernet'):
+            return 'Mg' + port[len('MultigigabitEthernet'):]
+        case _:
+            return port
 
-# Parse descriptions into dict (port -> desc)
+# Parse descriptions using column positions (robust for different status formats)
 port_desc = {}
-desc_re = re.compile(r'^(\S+)\s+(.*?)\s+(up|down|notconnect|testing|dormant|unknown|notpresent)\s*(.*)$')
+header_line = None
 for line in desc_lines:
-    line = line.strip()
-    if not line or line.startswith('Interface') or line.startswith('---'):
-        continue
-    m = desc_re.match(line)
-    if m:
-        intf = m.group(1)
-        norm_intf = normalize_port(intf)
-        desc = m.group(4).strip()
-        port_desc[norm_intf] = desc
+    stripped = line.strip()
+    if 'Interface' in stripped and 'Status' in stripped and 'Protocol' in stripped and 'Description' in stripped:
+        header_line = line  # Use raw line for positions
+        break
+
+if header_line:
+    pos_status = header_line.find('Status')
+    pos_protocol = header_line.find('Protocol', pos_status)
+    pos_desc = header_line.find('Description', pos_protocol)
+    for line in desc_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('---') or line == header_line:
+            continue
+        intf = line[0:pos_status].strip() if pos_status > 0 else ''
+        status = line[pos_status:pos_protocol].strip() if pos_protocol > pos_status else ''
+        protocol = line[pos_protocol:pos_desc].strip() if pos_desc > pos_protocol else ''
+        desc = line[pos_desc:].strip() if pos_desc > 0 else ''
+        if intf:
+            norm_intf = normalize_port(intf)
+            port_desc[norm_intf] = desc
+else:
+    # Fallback to regex if no header (unlikely, but for completeness)
+    desc_re = re.compile(r'^(\S+)\s+(.*?)\s+(up|down|notconnect|testing|dormant|unknown|notpresent|admin down)\s*(.*)$')
+    for line in desc_lines:
+        line = line.strip()
+        if not line or line.startswith('Interface') or line.startswith('---'):
+            continue
+        m = desc_re.match(line)
+        if m:
+            intf = m.group(1)
+            norm_intf = normalize_port(intf)
+            desc = m.group(4).strip()
+            port_desc[norm_intf] = desc
 
 # Function to parse neighbors (for both CDP and LLDP)
 def parse_neighbors(lines, is_cdp=False):
@@ -171,32 +196,34 @@ def process_entry(entry, neighbor_dict, is_cdp=False):
     before = full[:pos].strip()
     after = full[pos + len(match.group()):].strip()
     # Split before into device and local
-    d_m = re.match(r'(\S+)\s+(.*)', before)
-    if d_m:
-        device = d_m.group(1)
-        local = d_m.group(2)
+    # Handle no-space LLDP (e.g., "FL-WNN-02-AP013.cc.aGi4/26")
+    port_re = re.compile(r'(Gi|Gig|Te|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Fiv|Tw|Two|Mg|Po)[0-9]')
+    m = port_re.search(before)
+    if m:
+        pos_port = m.start()
+        device = before[:pos_port].strip()
+        local = before[pos_port:].strip()
     else:
-        # LLDP style
-        port_re = re.compile(r'(Gi|Gig|Te|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Fiv|Tw|Two|Mg|Po)\d')
-        m = port_re.search(before)
-        if m:
-            pos_port = m.start()
-            device = before[:pos_port]
-            local = before[pos_port:]
+        # CDP style with space
+        d_m = re.match(r'(\S+)\s+(.*)', before)
+        if d_m:
+            device = d_m.group(1)
+            local = d_m.group(2)
         else:
             return
-    # Now parse after
+    # Parse after for capabilities, platform, port ID
     after_parts = re.split(r'\s+', after)
     k = 0
     known_caps = set(['R', 'T', 'B', 'S', 'H', 'I', 'r', 'P', 'D', 'C', 'M'])
-    while k < len(after_parts) and after_parts[k] in known_caps:
+    caps = []
+    while k < len(after_parts) and (after_parts[k] in known_caps or after_parts[k].endswith(',')):
+        caps.append(after_parts[k])
         k += 1
     platform = ''
-    if is_cdp:
-        if len(after_parts) - k >= 2:
-            platform = ' '.join(after_parts[k : -2])
-        else:
-            platform = ' '.join(after_parts[k :])
+    if is_cdp and len(after_parts) > k:
+        # Platform is next, up to before last two (usually port ID)
+        platform_end = len(after_parts) - 2 if len(after_parts) - k > 2 else len(after_parts)
+        platform = ' '.join(after_parts[k:platform_end]).strip()
     norm_local = normalize_port(local)
     neighbor_dict[norm_local].append({
         'device': device,
@@ -228,6 +255,16 @@ for line in mac_lines:
             continue
         entries.append((vlan, mac, port))
 
+# Add debug output
+debug_log = os.path.join(temp_dir, "debug.txt")
+with open(debug_log, 'w') as f:
+    f.write(f"Hostname: {hostname}\n")
+    f.write(f"Port Descriptions (dict): {port_desc}\n\n")
+    f.write(f"CDP Neighbors (dict): {cdp_dict}\n\n")
+    f.write(f"LLDP Neighbors (dict): {lldp_dict}\n\n")
+    f.write(f"MAC Entries (list length): {len(entries)}\n")
+    f.write(f"Sample MAC Entry: {entries[0] if entries else 'None'}\n")
+
 # Prompt for CSV save location and name
 default_filename = hostname + "_mac_table.csv"
 save_path = crt.Dialog.FileOpenDialog("Save MAC Table CSV", "Save", default_filename, "CSV Files (*.csv)|*.csv||")
@@ -245,11 +282,7 @@ else:
             platforms = ', '.join(d['platform'] for d in cdp_dict.get(norm_port, []) if d['platform'])
             writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp, platforms])
 
-# Clean up temp files
-os.remove(mac_log)
-os.remove(desc_log)
-os.remove(cdp_log)
-os.remove(lldp_log)
+# Log files are preserved for debugging - no os.remove() calls
 
 # Reset synchronous
 scr.Synchronous = False
