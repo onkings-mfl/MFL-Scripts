@@ -136,7 +136,7 @@ for line in desc_lines:
         port_desc[norm_intf] = desc
 
 # Function to parse neighbors (for both CDP and LLDP)
-def parse_neighbors(lines):
+def parse_neighbors(lines, is_cdp=False):
     neighbor_dict = defaultdict(list)
     in_table = False
     current_entry = []
@@ -153,30 +153,59 @@ def parse_neighbors(lines):
         is_continuation = original_line[0].isspace() if len(original_line) > 0 else False
         if not is_continuation:
             if current_entry:
-                process_entry(current_entry, neighbor_dict)
+                process_entry(current_entry, neighbor_dict, is_cdp)
             current_entry = [line]
         else:
             current_entry.append(line)
     if current_entry:
-        process_entry(current_entry, neighbor_dict)
+        process_entry(current_entry, neighbor_dict, is_cdp)
     return neighbor_dict
 
-def process_entry(entry, neighbor_dict):
+def process_entry(entry, neighbor_dict, is_cdp=False):
     full = ' '.join(entry)
     match = re.search(r'\s(\d+)\s', full)
-    if match:
-        pos = match.start()
-        before = full[:pos].strip()
-        d_m = re.match(r'(\S+)\s+(.*)', before)
-        if d_m:
-            device = d_m.group(1)
-            local = d_m.group(2)
-            norm_local = normalize_port(local)
-            neighbor_dict[norm_local].append(device)
+    if not match:
+        return
+    hold = match.group(1)
+    pos = match.start()
+    before = full[:pos].strip()
+    after = full[pos + len(match.group()):].strip()
+    # Split before into device and local
+    d_m = re.match(r'(\S+)\s+(.*)', before)
+    if d_m:
+        device = d_m.group(1)
+        local = d_m.group(2)
+    else:
+        # LLDP style
+        port_re = re.compile(r'(Gi|Gig|Te|Ten|Twe|Fo|Hu|Fa|Eth|Fi|Fiv|Tw|Two|Mg|Po)\d')
+        m = port_re.search(before)
+        if m:
+            pos_port = m.start()
+            device = before[:pos_port]
+            local = before[pos_port:]
+        else:
+            return
+    # Now parse after
+    after_parts = re.split(r'\s+', after)
+    k = 0
+    known_caps = set(['R', 'T', 'B', 'S', 'H', 'I', 'r', 'P', 'D', 'C', 'M'])
+    while k < len(after_parts) and after_parts[k] in known_caps:
+        k += 1
+    platform = ''
+    if is_cdp:
+        if len(after_parts) - k >= 2:
+            platform = ' '.join(after_parts[k : -2])
+        else:
+            platform = ' '.join(after_parts[k :])
+    norm_local = normalize_port(local)
+    neighbor_dict[norm_local].append({
+        'device': device,
+        'platform': platform
+    })
 
 # Parse CDP and LLDP
-cdp_dict = parse_neighbors(cdp_lines)
-lldp_dict = parse_neighbors(lldp_lines)
+cdp_dict = parse_neighbors(cdp_lines, is_cdp=True)
+lldp_dict = parse_neighbors(lldp_lines, is_cdp=False)
 
 # Parse MAC table
 entries = []
@@ -207,13 +236,14 @@ if not save_path:
 else:
     with open(save_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor", "LLDP Neighbor"])
+        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor", "LLDP Neighbor", "Platform"])
         for vlan, mac, port in entries:
             norm_port = normalize_port(port)
             desc = port_desc.get(norm_port, "")
-            neighbor_cdp = ', '.join(cdp_dict.get(norm_port, []))
-            neighbor_lldp = ', '.join(lldp_dict.get(norm_port, []))
-            writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp])
+            neighbor_cdp = ', '.join(d['device'] for d in cdp_dict.get(norm_port, []))
+            neighbor_lldp = ', '.join(d['device'] for d in lldp_dict.get(norm_port, []))
+            platforms = ', '.join(d['platform'] for d in cdp_dict.get(norm_port, []) if d['platform'])
+            writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp, platforms])
 
 # Clean up temp files
 os.remove(mac_log)
