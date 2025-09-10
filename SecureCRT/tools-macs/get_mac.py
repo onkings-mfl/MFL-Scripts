@@ -13,15 +13,14 @@ scr = tab.Screen
 scr.Synchronous = True
 
 # Set terminal length to 0 to avoid paging
-scr.Send("terminal length 0\n")
-scr.WaitForString("terminal length 0\n")
+scr.Send("terminal length 0\r")
+scr.WaitForString("terminal length 0\r\n")
 
 # Get hostname
-scr.Send("show running-config | include hostname\n")
+scr.Send("show running-config | include hostname\r")
+scr.WaitForString("show running-config | include hostname\r\n")
 scr.WaitForString("hostname ")
-hostname = scr.ReadString("\n").strip()
-
-# Wait for prompt
+hostname = scr.ReadString("\r\n").strip()
 scr.WaitForString(hostname + "#")
 
 # Create temporary log files
@@ -32,14 +31,14 @@ desc_log = os.path.join(temp_dir, "interfaces_desc.txt")
 # Log MAC address table
 tab.Session.LogFileName = mac_log
 tab.Session.Log(True)
-scr.Send("show mac address-table\n")
+scr.Send("show mac address-table\r")
 scr.WaitForString(hostname + "#")
 tab.Session.Log(False)
 
 # Log interfaces descriptions
 tab.Session.LogFileName = desc_log
 tab.Session.Log(True)
-scr.Send("show interfaces description\n")
+scr.Send("show interfaces description\r")
 scr.WaitForString(hostname + "#")
 tab.Session.Log(False)
 
