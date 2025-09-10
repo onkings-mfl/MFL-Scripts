@@ -26,6 +26,7 @@ temp_dir = tempfile.gettempdir()
 mac_log = os.path.join(temp_dir, "mac_table.txt")
 desc_log = os.path.join(temp_dir, "interfaces_desc.txt")
 cdp_log = os.path.join(temp_dir, "cdp_neighbors.txt")
+lldp_log = os.path.join(temp_dir, "lldp_neighbors.txt")
 
 # Log MAC address table
 tab.Session.LogFileName = mac_log
@@ -48,6 +49,13 @@ scr.Send("show cdp neighbors\r")
 scr.WaitForString(prompt)
 tab.Session.Log(False)
 
+# Log LLDP neighbors
+tab.Session.LogFileName = lldp_log
+tab.Session.Log(True)
+scr.Send("show lldp neighbors\r")
+scr.WaitForString(prompt)
+tab.Session.Log(False)
+
 # Read MAC output
 with open(mac_log, 'r') as f:
     mac_lines = f.readlines()
@@ -59,6 +67,10 @@ with open(desc_log, 'r') as f:
 # Read CDP output
 with open(cdp_log, 'r') as f:
     cdp_lines = f.readlines()
+
+# Read LLDP output
+with open(lldp_log, 'r') as f:
+    lldp_lines = f.readlines()
 
 # Parse descriptions into dict (port -> desc)
 port_desc = {}
@@ -75,7 +87,7 @@ for line in desc_lines:
 
 # Parse CDP neighbors into dict (port -> device_id)
 cdp_dict = {}
-cdp_re = re.compile(r'^(?P<device>[\w\.-]+)\s+(?P<local>\S+)\s+\d+\s+[A-Z\s]+\s+\S+\s+\S+')
+cdp_re = re.compile(r'^(?P<device>\S+)\s+(?P<local>\S+)\s+\d+\s+[A-Z\s]+\s+\S+\s+\S+')
 in_table = False
 for line in cdp_lines:
     line = line.strip()
@@ -90,6 +102,24 @@ for line in cdp_lines:
             local_port = m.group('local')
             device = m.group('device')
             cdp_dict[local_port] = device
+
+# Parse LLDP neighbors into dict (port -> device_id)
+lldp_dict = {}
+lldp_re = re.compile(r'^(?P<device>\S+)\s+(?P<local>\S+)\s+\d+\s+[A-Z\s]+\s+\S+')
+in_table = False
+for line in lldp_lines:
+    line = line.strip()
+    if not line:
+        continue
+    if "Device ID" in line and "Local Intf" in line:
+        in_table = True
+        continue
+    if in_table:
+        m = lldp_re.match(line)
+        if m:
+            local_port = m.group('local')
+            device = m.group('device')
+            lldp_dict[local_port] = device
 
 # Function to abbreviate port names
 def abbreviate_port(port):
@@ -141,17 +171,19 @@ if not save_path:
 else:
     with open(save_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor"])
+        writer.writerow(["Switch Name", "MAC", "Port", "VLAN", "Port Description", "CDP Neighbor", "LLDP Neighbor"])
         for vlan, mac, port in entries:
             abbrev_port = abbreviate_port(port)
             desc = port_desc.get(abbrev_port, port_desc.get(port, ""))
-            neighbor = cdp_dict.get(abbrev_port, cdp_dict.get(port, ""))
-            writer.writerow([hostname, mac, port, vlan, desc, neighbor])
+            neighbor_cdp = cdp_dict.get(abbrev_port, cdp_dict.get(port, ""))
+            neighbor_lldp = lldp_dict.get(abbrev_port, lldp_dict.get(port, ""))
+            writer.writerow([hostname, mac, port, vlan, desc, neighbor_cdp, neighbor_lldp])
 
 # Clean up temp files
 os.remove(mac_log)
 os.remove(desc_log)
 os.remove(cdp_log)
+os.remove(lldp_log)
 
 # Reset synchronous
 scr.Synchronous = False
