@@ -3,7 +3,7 @@
 
 import urllib.request
 
-# Replace with your GitHub raw script URL
+# GitHub raw script URL
 url = "https://raw.githubusercontent.com/onkings-mfl/MFL-Scripts/refs/heads/main/SecureCRT/script-logins/login.py"
 
 try:
