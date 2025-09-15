@@ -8,7 +8,6 @@ import csv
 def main():
     tab = crt.GetScriptTab()
     tab.Screen.Synchronous = True
-    tab.Screen.IgnoreBlankLines = True
 
     # Credential selection
     csv_path = r"C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
@@ -79,7 +78,6 @@ def main():
         try:
             start_tab = crt.Session.ConnectInTab(connect_str)
             start_tab.Screen.Synchronous = True
-            start_tab.Screen.IgnoreBlankLines = True
             start_tab.Caption = f"Core {core_ip}"
             start_tab.Activate()
             is_core = True
@@ -178,7 +176,6 @@ def main():
                 try:
                     new_tab = crt.Session.ConnectInTab(connect_str)
                     new_tab.Screen.Synchronous = True
-                    new_tab.Screen.IgnoreBlankLines = True
                     new_tab.Caption = neigh_host
                     new_tab.Activate()
                 except Exception as e:
