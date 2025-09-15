@@ -8,7 +8,7 @@ import csv
 def main():
     tab = crt.GetScriptTab()
     tab.Screen.Synchronous = True
-
+    
     # Credential selection
     csv_path = r"C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
     if not os.path.exists(csv_path):
