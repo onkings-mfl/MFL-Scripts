@@ -2,18 +2,64 @@
 # $interface = "1.0"
 
 import re
+import os
+import csv
 
 def main():
     tab = crt.GetScriptTab()
     tab.Screen.Synchronous = True
     tab.Screen.IgnoreBlankLines = True
 
-    # Prompt for credentials and inputs
-    username = crt.Dialog.Prompt("Enter username:", "Username", "", False)
-    if not username:
+    # Credential selection
+    csv_path = r"C:\Users\dan\OneDrive - Cleveland Clinic\Documents\Network\SecureCRT\credentials.csv"
+    if not os.path.exists(csv_path):
+        csv_path = crt.Dialog.Prompt("Enter the path to the credentials CSV file:", "File Not Found", "")
+        if not csv_path or not os.path.exists(csv_path):
+            crt.Dialog.MessageBox("CSV file not found. Exiting.")
+            return
+
+    # Read the CSV into a dictionary
+    creds = {}
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                key = row['credentials'].strip()
+                creds[key] = {
+                    'username': row['username'].strip(),
+                    'password': row['password'].strip()
+                }
+                # Use enable_password if present and not empty, else default to password
+                enable_pwd = row.get('enable_password', '').strip()
+                creds[key]['enable_password'] = enable_pwd if enable_pwd else row['password'].strip()
+    except Exception as e:
+        crt.Dialog.MessageBox("Error reading CSV: " + str(e))
         return
-    password = crt.Dialog.Prompt("Enter password:", "Password", "", True)
-    enable_pass = crt.Dialog.Prompt("Enter enable password (if required, leave blank if none):", "Enable Password", "", True)
+
+    # Prompt for credential selection
+    menu_choice = crt.Dialog.Prompt("[1] AD Account\n\n[2] TAC NetEng\n\n[3] TAC DNAC\n\n[4] Local NetEng\n" , "LOGON MENU", "")
+    match menu_choice:
+        case "1":
+            key = "ad_account"
+        case "2":
+            key = "tac_NetEng"
+        case "3":
+            key = "tac_DNAC01"
+        case "4":
+            key = "local_NetEng"
+        case _:
+            crt.Dialog.MessageBox("Exiting..", "Menu options")
+            return
+
+    if key not in creds:
+        crt.Dialog.MessageBox("Credentials not found for " + key)
+        return
+
+    username = creds[key]['username']
+    password = creds[key]['password']
+    enable_pass = creds[key]['enable_password']
+
+    # Prompt for core IP and MAC
     core_ip = crt.Dialog.Prompt("Enter core switch IP (optional, press enter to skip):", "Core IP", "")
     mac_input = crt.Dialog.Prompt("Enter MAC address:", "MAC", "")
     if not mac_input:
